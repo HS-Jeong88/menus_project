@@ -5,7 +5,7 @@
 ## 주요 기능
 
 - 홈 화면에서 메뉴 중 최대 3개를 무작위로 추천
-- 전체 메뉴 목록 조회 및 메뉴 이름 검색
+- 전체 메뉴 목록 조회 및 메뉴 이름·설명 검색
 - 메뉴 등록, 수정, 삭제
 - 메뉴별 추천 횟수 증가
 - JSON 파일에 메뉴 데이터 저장
@@ -26,8 +26,8 @@
 │   ├── service/
 │   │   └── data.py                     # 메뉴 조회 및 변경 로직
 │   └── storage/
-│       ├── menus.json
-│       └── menus_recommendation.json   # 애플리케이션이 읽고 쓰는 메뉴 데이터
+│       ├── menus.json                  # 이전 테스트 데이터 (현재 API에서 사용하지 않음)
+│       └── menus_recommendation.json   # 현재 애플리케이션이 읽고 쓰는 메뉴 데이터
 └── frontend/
     ├── index.html                      # 웹 화면
     └── js/
@@ -51,8 +51,6 @@ py -m venv .venv
 
 API 문서는 백엔드 실행 후 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)에서 확인할 수 있습니다.
 
-> 메뉴 데이터 파일의 경로가 백엔드 작업 디렉터리를 기준으로 지정되어 있으므로, 반드시 `backend` 폴더에서 서버를 실행해야 합니다.
-
 ### 2. 프런트엔드 실행
 
 새 터미널에서 프로젝트 루트 기준으로 다음 명령을 실행합니다.
@@ -70,7 +68,7 @@ py -m http.server 5500
 | -------- | ----------------------------- | ------------------- |
 | `GET`    | `/`                           | 서버 환영 메시지    |
 | `GET`    | `/menus`                      | 메뉴 전체 조회      |
-| `GET`    | `/menus/search?word={검색어}` | 메뉴 이름으로 검색  |
+| `GET`    | `/menus/search?word={검색어}` | 메뉴 이름·설명 검색 |
 | `GET`    | `/menus/{id}`                 | ID로 메뉴 조회      |
 | `POST`   | `/menus`                      | 메뉴 등록           |
 | `PUT`    | `/menus`                      | 메뉴 수정           |
@@ -81,4 +79,4 @@ py -m http.server 5500
 
 ## 데이터 저장
 
-백엔드는 `backend/storage/menus_recommendation.json`을 시작할 때 읽고, 메뉴를 추가·수정·삭제하거나 추천 횟수가 변경될 때 해당 파일에 저장합니다. 파일을 직접 수정할 때는 유효한 JSON 형식과 기존 메뉴 데이터 구조를 유지하세요.
+백엔드는 `backend/storage/menus_recommendation.json`을 읽고 씁니다. `backend/storage/menus.json`은 이전 테스트 데이터이며 현재 API에는 연결되어 있지 않습니다. 로컬 테스트 전에 `menus_recommendation.json`을 복사해 두면 초기 데이터로 되돌릴 수 있습니다.
