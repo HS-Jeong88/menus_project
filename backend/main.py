@@ -20,7 +20,7 @@ a = FastAPI(title="메뉴 관리 API")
 # set MENU_CORS_ORIGINS to a comma-separated list of trusted origins.
 allowed_origins = os.getenv(
     "MENU_CORS_ORIGINS",
-    "http://localhost:5500,http://127.0.0.1:5500",
+    "http://localhost:5500,http://127.0.0.1:5500,https://menus-project-front-wgza.onrender.com",
 )
 a.add_middleware(
     CORSMiddleware,
