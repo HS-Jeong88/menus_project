@@ -11,8 +11,14 @@
       button { padding: 8px 16px; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background: #f9f9f9; }
       button:disabled { cursor: not-allowed; opacity: 0.6; }
       nav button.active { border-color: #007bff; background: #007bff; color: #fff; }
-      .search-box { margin-bottom: 15px; }
+      .search-box { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
       .search-box input { width: min(100%, 350px); padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+      .search-status { min-height: 1.5em; margin: 8px 0; }
+      .search-status.error-message { color: #b00020; }
+      .search-status button { margin-left: 8px; }
+      .spinner { display: inline-block; width: 14px; height: 14px; margin-right: 7px; vertical-align: -2px; border: 2px solid #ccc; border-top-color: #007bff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
       .table-wrap { overflow-x: auto; }
       table { width: 100%; margin-top: 10px; border-collapse: collapse; }
       th, td { padding: 10px; border: 1px solid #ddd; text-align: left; vertical-align: top; }
@@ -81,6 +87,7 @@
       let searchVersion = 0;
       let modalRequestVersion = 0;
       let searchTimer = null;
+      let searchController = null;
       let lastFocusedElement = null;
       let editReturnKeyword = "";
 
@@ -96,8 +103,11 @@
       function beginPage(activeNavId) {
         closeModal();
         pageVersion += 1;
+        searchVersion += 1;
         setActiveNav(activeNavId);
         window.clearTimeout(searchTimer);
+        if (searchController) searchController.abort();
+        searchController = null;
         return pageVersion;
       }
 
@@ -106,6 +116,27 @@
         paragraph.className = isError ? "status-message error-message" : "status-message";
         paragraph.textContent = message;
         container.replaceChildren(paragraph);
+      }
+
+      function setSearchStatus(status, message, isError = false, onRetry = null) {
+        status.replaceChildren();
+        status.classList.toggle("error-message", isError);
+        if (message) {
+          if (!isError && message.includes("불러오는 중")) {
+            const spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.setAttribute("aria-hidden", "true");
+            status.appendChild(spinner);
+          }
+          status.appendChild(document.createTextNode(message));
+        }
+        if (onRetry) {
+          const retry = document.createElement("button");
+          retry.type = "button";
+          retry.textContent = "다시 시도";
+          retry.addEventListener("click", onRetry, { once: true });
+          status.appendChild(retry);
+        }
       }
 
       function makeCell(value) {
@@ -181,20 +212,39 @@
         searchInput.value = initialKeyword;
         const results = document.createElement("div");
         results.id = "menu-results";
+        results.setAttribute("aria-busy", "false");
+        const status = document.createElement("p");
+        status.className = "search-status";
+        status.setAttribute("role", "status");
+        status.setAttribute("aria-live", "polite");
         searchBox.appendChild(searchInput);
-        contentDiv.replaceChildren(heading, searchBox, results);
+        contentDiv.replaceChildren(heading, searchBox, status, results);
 
         async function loadResults(keyword, requestVersion) {
           if (currentPage !== pageVersion || requestVersion !== searchVersion) return;
-          showMessage(results, "메뉴를 불러오는 중입니다.");
+          if (searchController) searchController.abort();
+          const controller = new AbortController();
+          searchController = controller;
+          results.setAttribute("aria-busy", "true");
+          setSearchStatus(status, "메뉴를 불러오는 중입니다.");
           try {
             const trimmedKeyword = keyword.trim();
-            const menus = trimmedKeyword ? await searchMenus(trimmedKeyword) : await getAllMenus();
+            const options = { signal: controller.signal };
+            const menus = trimmedKeyword
+              ? await searchMenus(trimmedKeyword, options)
+              : await getAllMenus(options);
             if (currentPage !== pageVersion || requestVersion !== searchVersion) return;
             renderMenuTable(results, menus, currentPage, trimmedKeyword);
+            setSearchStatus(status, menus.length ? `${menus.length}개 메뉴를 표시합니다.` : "");
           } catch (error) {
+            if (error.name === "AbortError") return;
             if (currentPage === pageVersion && requestVersion === searchVersion) {
-              showMessage(results, error.message, true);
+              setSearchStatus(status, error.message, true, () => loadResults(searchInput.value, requestVersion));
+            }
+          } finally {
+            if (searchController === controller) {
+              searchController = null;
+              results.setAttribute("aria-busy", "false");
             }
           }
         }
@@ -202,7 +252,8 @@
         searchInput.addEventListener("input", () => {
           const requestVersion = ++searchVersion;
           window.clearTimeout(searchTimer);
-          showMessage(results, "검색 중입니다.");
+          if (searchController) searchController.abort();
+          setSearchStatus(status, "검색어 입력을 기다리는 중입니다.");
           searchTimer = window.setTimeout(() => loadResults(searchInput.value, requestVersion), 250);
         });
         const initialRequestVersion = ++searchVersion;
@@ -304,7 +355,6 @@
           if (!menu) return;
           submit.disabled = true;
           try {
-            // ID는 API 서버가 생성하므로 프런트엔드에서 보내지 않습니다.
             await addMenu(menu);
             if (currentPage === pageVersion) await renderAllMenu();
           } catch (requestError) {
@@ -393,7 +443,6 @@
         saveButton.disabled = true;
         try {
           await updateMenu({ id, ...menu });
-          // 사용자가 저장 중 다른 페이지로 이동했다면 현재 화면을 덮어쓰지 않습니다.
           if (currentPage === pageVersion) {
             closeModal();
             await renderAllMenu(editReturnKeyword);

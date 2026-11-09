@@ -25,7 +25,8 @@ async function requestApi(path, options = {}) {
 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, options);
-  } catch {
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
     throw new Error("서버에 연결할 수 없습니다. 서버 주소와 실행 상태를 확인해주세요.");
   }
 
@@ -48,22 +49,15 @@ async function requestApi(path, options = {}) {
     throw new Error(message || `요청에 실패했습니다. (HTTP ${response.status})`);
   }
 
-  // DELETE 등의 API는 응답 본문 없이 204를 반환할 수 있습니다.
-  if (response.status === 204) {
-    return null;
-  }
+  if (response.status === 204) return null;
 
   const contentType = response.headers.get("content-type") || "";
-
-  if (!contentType.includes("application/json")) {
-    return null;
-  }
-
+  if (!contentType.includes("application/json")) return null;
   return response.json();
 }
 
-async function getAllMenus() {
-  const result = await requestApi("/menus");
+async function getAllMenus(options = {}) {
+  const result = await requestApi("/menus", options);
 
   if (!Array.isArray(result)) {
     throw new Error("서버에서 올바른 메뉴 목록을 받지 못했습니다.");
@@ -72,9 +66,9 @@ async function getAllMenus() {
   return result.filter((item) => item && typeof item === "object");
 }
 
-async function searchMenus(keyword) {
+async function searchMenus(keyword, options = {}) {
   const query = new URLSearchParams({ word: keyword });
-  const result = await requestApi(`/menus/search?${query.toString()}`);
+  const result = await requestApi(`/menus/search?${query.toString()}`, options);
 
   if (!Array.isArray(result)) {
     throw new Error("서버에서 올바른 검색 결과를 받지 못했습니다.");
@@ -92,9 +86,7 @@ async function addMenu(menuObject) {
 }
 
 async function deleteMenu(menuId) {
-  return requestApi(`/menus/${encodeURIComponent(menuId)}`, {
-    method: "DELETE",
-  });
+  return requestApi(`/menus/${encodeURIComponent(menuId)}`, { method: "DELETE" });
 }
 
 async function getMenuOne(id) {

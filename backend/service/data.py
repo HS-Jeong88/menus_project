@@ -12,6 +12,10 @@ JSON_PATH = Path(__file__).resolve().parent.parent / "storage" / "menus_recommen
 _lock = threading.RLock()
 
 
+class StorageError(RuntimeError):
+    """Raised when menu data cannot be persisted to the JSON store."""
+
+
 def load_menus() -> list[dict[str, Any]]:
     """Load menu records from disk, normalize older records, and validate them."""
     with JSON_PATH.open("r", encoding="utf-8") as file:
@@ -61,9 +65,14 @@ def save_menus() -> None:
                 file.write("\n")
                 temp_path = Path(file.name)
             os.replace(temp_path, JSON_PATH)
+        except OSError as exc:
+            raise StorageError("메뉴 JSON 파일을 기록할 수 없습니다.") from exc
         finally:
             if temp_path is not None and temp_path.exists():
-                temp_path.unlink()
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
 
 menus = load_menus()
