@@ -2,13 +2,13 @@
 
 import logging
 import os
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-from typing import Annotated
 
 from service import data
 
@@ -32,7 +32,7 @@ a.add_middleware(
 
 
 MenuName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-MenuDescription = Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)]
+MenuDescription = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
 
 class MenuCreate(BaseModel):
@@ -41,14 +41,14 @@ class MenuCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: MenuName
-    calories: int = Field(ge=0)
+    calories: int = Field(strict=True, ge=0)
     description: MenuDescription
 
 
 class MenuUpdate(MenuCreate):
     """Fields accepted when updating a menu."""
 
-    id: int = Field(gt=0)
+    id: int = Field(strict=True, gt=0)
 
 
 @a.exception_handler(data.StorageError)
@@ -115,7 +115,7 @@ def add_menu(menu: MenuCreate):
 
 
 @a.delete("/menus/{menu_id}")
-def delete_menu(menu_id: int = Field(gt=0)):
+def delete_menu(menu_id: int = Path(gt=0)):
     deleted_id = data.delete_menu(menu_id)
     if deleted_id is None:
         raise HTTPException(status_code=404, detail="메뉴를 찾을 수 없습니다.")
@@ -123,7 +123,7 @@ def delete_menu(menu_id: int = Field(gt=0)):
 
 
 @a.get("/menus/{menu_id}")
-def get_menu(menu_id: int = Field(gt=0)):
+def get_menu(menu_id: int = Path(gt=0)):
     menu = data.get_one(menu_id)
     if menu is None:
         raise HTTPException(status_code=404, detail="메뉴를 찾을 수 없습니다.")
@@ -139,7 +139,7 @@ def update_menu(menu: MenuUpdate):
 
 
 @a.post("/menus/recommend/{menu_id}")
-def recommend_menu(menu_id: int = Field(gt=0)):
+def recommend_menu(menu_id: int = Path(gt=0)):
     updated_menu = data.update_recommend(menu_id)
     if updated_menu is None:
         raise HTTPException(status_code=404, detail="메뉴를 찾을 수 없습니다.")
