@@ -7,7 +7,8 @@
 const API_SERVER = getApiServer();
 
 function getApiServer() {
-  const configuredServer = window.API_SERVER || window.MENU_API_BASE_URL;
+  const configuredServer =
+    "https://menus-project-back-kpo2.onrender.com" || window.MENU_API_BASE_URL;
   if (configuredServer) {
     return String(configuredServer).replace(/\/+$/, "");
   }
