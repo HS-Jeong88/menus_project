@@ -24,7 +24,11 @@ allowed_origins = os.getenv(
 )
 a.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in allowed_origins.split(",") if origin.strip()],
+    allow_origins=[
+        origin.strip().rstrip("/")
+        for origin in allowed_origins.split(",")
+        if origin.strip()
+    ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
