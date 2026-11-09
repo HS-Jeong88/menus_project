@@ -1,18 +1,18 @@
 "use strict";
 
-// 개발 환경에서는 localhost의 8000번 포트를 사용하고,
-// 배포 환경에서는 기본적으로 현재 페이지와 같은 origin을 사용합니다.
-// API 서버가 별도 주소라면 페이지에서 data_api.js보다 먼저
-// window.MENU_API_BASE_URL 값을 설정하세요.
-const API_BASE_URL = getApiBaseUrl();
+// Set window.API_SERVER before loading this file to point at a separately
+// deployed API, for example: window.API_SERVER = "https://api.example.com".
+// Static browser JavaScript cannot read Render environment variables directly;
+// inject this value through a config script or build-time substitution.
+const API_SERVER = getApiServer();
 
-function getApiBaseUrl() {
-  if (window.MENU_API_BASE_URL) {
-    return window.MENU_API_BASE_URL.replace(/\/+$/, "");
+function getApiServer() {
+  const configuredServer = window.API_SERVER || window.MENU_API_BASE_URL;
+  if (configuredServer) {
+    return String(configuredServer).replace(/\/+$/, "");
   }
 
   const host = window.location.hostname;
-
   if (host === "localhost" || host === "127.0.0.1" || host === "") {
     return "http://127.0.0.1:8000";
   }
@@ -24,7 +24,7 @@ async function requestApi(path, options = {}) {
   let response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, options);
+    response = await fetch(`${API_SERVER}${path}`, options);
   } catch (error) {
     if (error.name === "AbortError") throw error;
     throw new Error("서버에 연결할 수 없습니다. 서버 주소와 실행 상태를 확인해주세요.");
