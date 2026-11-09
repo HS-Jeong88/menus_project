@@ -1,108 +1,151 @@
+"""JSON 기반 메뉴 데이터 저장 및 처리."""
 
-# 2026년 11월 9일 코스 수정 
-# menus.json 분리 > data.py 코드에서  menus.json 데이터 가져오는 코드 추가
-# 작업자 : 김티처
-
-import json    #json 개념 정리하고 이거 사용하겠다..
-# import os      #os (operation systme - 운영체제) 윈도우 자원을 사용하려고 한다.
-
-# json 파일 위치
-JSON_PATH = "./storage/menus_recommendation.json"
-
-# json 파일 읽기
-def load_menus():
-    with open(JSON_PATH, "r", encoding="utf-8") as file:
-        return json.load(file)
-
-# json 파일 쓰기
-def save_menus():
-    with open(JSON_PATH, "w", encoding="utf-8") as file:
-        json.dump(menus, file, ensure_ascii=False, indent=4)
-
-# 시작과 동시에 json파일을 로드하여 menus배열에 저장
-menus = load_menus()
-
-#load_menus()에서 읽어온 id중 최고값을 찾아서 하나 증가 시킴. 
-# 다음에 메뉴가 추가될때의  id 값
-next_id = max((menu["id"] for menu in menus),default=0)+1
+import json
+import os
+import tempfile
+from pathlib import Path
+from typing import Any
 
 
-def get_all():
+# 현재 작업 디렉터리가 아니라 이 파일의 위치를 기준으로 경로를 만듭니다.
+JSON_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "storage"
+    / "menus_recommendation.json"
+)
+
+
+def load_menus() -> list[dict[str, Any]]:
+    """JSON 파일에서 메뉴를 읽고 이전 데이터 형식도 보정합니다."""
+    with JSON_PATH.open("r", encoding="utf-8") as file:
+        loaded = json.load(file)
+
+    if not isinstance(loaded, list):
+        raise ValueError(f"메뉴 데이터는 JSON 배열이어야 합니다: {JSON_PATH}")
+
+    menus: list[dict[str, Any]] = []
+
+    for item in loaded:
+        if not isinstance(item, dict) or "id" not in item:
+            raise ValueError(f"잘못된 메뉴 데이터가 있습니다: {item!r}")
+
+        # recommendation 항목이 없는 기존 데이터도 처리합니다.
+        item.setdefault("recommendation", 0)
+        menus.append(item)
+
     return menus
 
-# 검색기능
-def search_Word(word):
-    result = [];
-    for m in menus:
-        if(word in m['name']):
-            result.append(m)
-    return result 
 
-#데이터 추가하는 함수
-def add_menu(menu):   ## 객체를 받은 것.
-   
-    menu = menu.model_dump()    ## 객체를 딕셔너리 변경
+def save_menus() -> None:
+    """JSON 파일을 임시 파일에 쓴 뒤 교체해 불완전한 저장을 방지합니다."""
+    JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
 
-    ## 전역변수에 있는 next_id 변수를 이 함수 내부에서 사용할께요. 코딩 추가
-    global next_id   ## 이 코드는 전역변수에 있는 next_id 변수를 이 함수에서 사용하겠다.
-    ##print("11", menu)
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=JSON_PATH.parent,
+            delete=False,
+        ) as file:
+            json.dump(menus, file, ensure_ascii=False, indent=4)
+            file.write("\n")
+            temp_path = Path(file.name)
+
+        os.replace(temp_path, JSON_PATH)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+menus = load_menus()
+
+
+def get_all() -> list[dict[str, Any]]:
+    return menus
+
+
+def search_word(word: str) -> list[dict[str, Any]]:
+    """메뉴 이름을 대소문자 구분 없이 검색합니다."""
+    keyword = word.strip().casefold()
+
+    if not keyword:
+        return get_all()
+
+    return [
+        menu
+        for menu in menus
+        if keyword in str(menu.get("name", "")).casefold()
+    ]
+
+
+# 기존 함수명을 사용 중인 코드와의 호환성을 유지합니다.
+def search_Word(word: str) -> list[dict[str, Any]]:
+    return search_word(word)
+
+
+def add_menu(menu: Any) -> dict[str, Any]:
+    """메뉴를 추가하고 서버에서 고유 ID를 할당합니다."""
+    values = menu.model_dump() if hasattr(menu, "model_dump") else dict(menu)
+
     new_menu = {
-        "id": next_id,
-        "name":menu["name"],
-        "calories":menu["calories"],
-        "description":menu["description"]
+        "id": max((item["id"] for item in menus), default=0) + 1,
+        "name": values["name"],
+        "calories": values["calories"],
+        "description": values["description"],
+        "recommendation": 0,
     }
-    ##print('22')
-    menus.append(new_menu)
-    save_menus()  #menus의 내용이 변경되었으니 json파일도 변경되어야 함
-    ##print('33')
-    next_id += 1
 
+    menus.append(new_menu)
+    save_menus()
     return new_menu
 
 
-# id 로 데이터 삭제하는 함수
-def delete_menu(menu_id):                       #enumerate 이 함수를 사용하면 인덱스와 값을 가져올 수 있다.
-    for index, menu in enumerate(menus):  # 삭제할 데이터를 찾을 때는 id로 찾고
-                                          # 리스트에서 지울 때는 인덱스 번호로 지운다.. 
-                                          # 그래서 리스트이 번호와 메뉴의 정보인 값이 모두 필요함
-        if menu["id"]== menu_id:  #  삭제할 메뉴..
-            menus.pop(index)
-            save_menus()  #menus의 내용이 변경되었으니 json파일도 변경되어야 함
-            return menu_id       #삭제가 되었다면  삭제한 아이디를 리턴
-    return None   #삭제한 데이터가 없다면   None 리턴됨
-    
-
-# id로 데이터를 검색하는 하수
-def get_one(id):
-    for menu in menus:
-        if(menu["id"] == id):
-            return menu
-    return None
-
-# 클라이언트가 보낸 수정할 데이트로 실제 데이터를 수정하는 코드
-def update_one(menudata):  #객체를 받는다.
-    for menu in menus:
-        #menu변수는 딕셔너리이고,  menudata는 클래스 객체라서 변수 접근 방식이 다름.
-        if(menu["id"]==menudata.id):
-            menu["name"]=menudata.name
-            menu["calories"]=menudata.calories
-            menu["description"]=menudata.description
+def delete_menu(menu_id: int) -> int | None:
+    for index, menu in enumerate(menus):
+        if menu.get("id") == menu_id:
+            deleted_menu = menus.pop(index)
             save_menus()
-            return menu  # 수정이 되면 끝난 것이니 리턴해서 마무리 해
+            return deleted_menu["id"]
+
     return None
 
 
-#추천 수 증가
-def update_recommend(id):
-    for menu in menus:
-        if(menu["id"] == id):
-            menu["recommendation"] += 1
-            save_menus()
-            return
-    return None
+def get_one(menu_id: int) -> dict[str, Any] | None:
+    return next(
+        (menu for menu in menus if menu.get("id") == menu_id),
+        None,
+    )
 
 
+def update_one(menu_data: Any) -> dict[str, Any] | None:
+    values = (
+        menu_data.model_dump()
+        if hasattr(menu_data, "model_dump")
+        else dict(menu_data)
+    )
+
+    menu = get_one(values["id"])
+
+    if menu is None:
+        return None
+
+    menu.update(
+        name=values["name"],
+        calories=values["calories"],
+        description=values["description"],
+    )
+
+    save_menus()
+    return menu
 
 
+def update_recommend(menu_id: int) -> dict[str, Any] | None:
+    menu = get_one(menu_id)
 
+    if menu is None:
+        return None
+
+    menu["recommendation"] = int(menu.get("recommendation", 0)) + 1
+    save_menus()
+    return menu
