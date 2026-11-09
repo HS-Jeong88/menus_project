@@ -18,8 +18,14 @@ class StorageError(RuntimeError):
 
 def load_menus() -> list[dict[str, Any]]:
     """Load menu records from disk, normalize older records, and validate them."""
-    with JSON_PATH.open("r", encoding="utf-8") as file:
-        loaded = json.load(file)
+    if not JSON_PATH.exists() or JSON_PATH.stat().st_size == 0:
+        return []
+
+    try:
+        with JSON_PATH.open("r", encoding="utf-8") as file:
+            loaded = json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"메뉴 데이터 파일이 손상되었습니다: {JSON_PATH}") from exc
 
     if not isinstance(loaded, list):
         raise ValueError(f"메뉴 데이터는 JSON 배열이어야 합니다: {JSON_PATH}")
