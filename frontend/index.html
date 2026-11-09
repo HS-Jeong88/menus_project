@@ -199,6 +199,7 @@
     <div id="edit-modal" class="modal-overlay" role="presentation" aria-hidden="true">
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
         <h2 id="edit-title">메뉴 수정</h2>
+
         <form id="edit-form">
           <input type="hidden" id="edit-id" />
 
@@ -237,15 +238,30 @@
 
       let pageVersion = 0;
       let searchVersion = 0;
+      let modalRequestVersion = 0;
       let searchTimer = null;
       let lastFocusedElement = null;
+      let editReturnKeyword = "";
 
       function setActiveNav(activeId) {
         document.querySelectorAll("nav button").forEach((button) => {
           const isActive = button.id === activeId;
           button.classList.toggle("active", isActive);
-          button.setAttribute("aria-current", isActive ? "page" : "false");
+
+          if (isActive) {
+            button.setAttribute("aria-current", "page");
+          } else {
+            button.removeAttribute("aria-current");
+          }
         });
+      }
+
+      function beginPage(activeNavId) {
+        closeModal();
+        pageVersion += 1;
+        setActiveNav(activeNavId);
+        window.clearTimeout(searchTimer);
+        return pageVersion;
       }
 
       function showMessage(container, message, isError = false) {
@@ -265,7 +281,11 @@
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = label;
-        if (className) button.className = className;
+
+        if (className) {
+          button.className = className;
+        }
+
         button.addEventListener("click", onClick);
         return button;
       }
@@ -281,32 +301,19 @@
         return result;
       }
 
-      function setPageContent(titleText, pageToken) {
+      async function renderHome() {
+        const currentPage = beginPage("nav-home");
+
         const heading = document.createElement("h2");
-        heading.textContent = titleText;
+        heading.textContent = "오늘의 추천 메뉴 (랜덤 3선)";
 
         const results = document.createElement("div");
-        results.id = "menu-results";
-
         contentDiv.replaceChildren(heading, results);
-
-        if (pageToken !== pageVersion) return null;
-        return results;
-      }
-
-      async function renderHome() {
-        const pageToken = ++pageVersion;
-        setActiveNav("nav-home");
-        contentDiv.replaceChildren();
-
-        const results = setPageContent("오늘의 추천 메뉴 (랜덤 3선)", pageToken);
-        if (!results) return;
-
         showMessage(results, "메뉴를 불러오는 중입니다.");
 
         try {
           const menus = await getAllMenus();
-          if (pageToken !== pageVersion) return;
+          if (currentPage !== pageVersion) return;
 
           if (menus.length === 0) {
             showMessage(results, "등록된 메뉴가 없습니다.");
@@ -337,16 +344,14 @@
 
           results.replaceChildren(list);
         } catch (error) {
-          if (pageToken === pageVersion) {
+          if (currentPage === pageVersion) {
             showMessage(results, error.message, true);
           }
         }
       }
 
       async function renderAllMenu(initialKeyword = "") {
-        const pageToken = ++pageVersion;
-        setActiveNav("nav-all");
-        contentDiv.replaceChildren();
+        const currentPage = beginPage("nav-all");
 
         const heading = document.createElement("h2");
         heading.textContent = "전체 메뉴 목록";
@@ -365,43 +370,49 @@
         results.id = "menu-results";
 
         searchBox.appendChild(searchInput);
-        contentDiv.append(heading, searchBox, results);
+        contentDiv.replaceChildren(heading, searchBox, results);
 
-        async function loadResults(keyword) {
-          const requestToken = ++searchVersion;
+        async function loadResults(keyword, requestVersion) {
+          if (currentPage !== pageVersion || requestVersion !== searchVersion) {
+            return;
+          }
+
           showMessage(results, "메뉴를 불러오는 중입니다.");
 
           try {
-            const menus = keyword.trim() ? await searchMenus(keyword.trim()) : await getAllMenus();
+            const trimmedKeyword = keyword.trim();
+            const menus = trimmedKeyword ? await searchMenus(trimmedKeyword) : await getAllMenus();
 
-            if (pageToken !== pageVersion || requestToken !== searchVersion) {
+            if (currentPage !== pageVersion || requestVersion !== searchVersion) {
               return;
             }
 
-            renderMenuTable(results, menus, pageToken, keyword);
+            renderMenuTable(results, menus, currentPage, trimmedKeyword);
           } catch (error) {
-            if (pageToken === pageVersion && requestToken === searchVersion) {
+            if (currentPage === pageVersion && requestVersion === searchVersion) {
               showMessage(results, error.message, true);
             }
           }
         }
 
         searchInput.addEventListener("input", () => {
+          // 디바운스 대기 중에도 진행 중인 오래된 응답을 무효화합니다.
+          const requestVersion = ++searchVersion;
           window.clearTimeout(searchTimer);
+          showMessage(results, "검색 중입니다.");
+
           searchTimer = window.setTimeout(() => {
-            loadResults(searchInput.value);
+            loadResults(searchInput.value, requestVersion);
           }, 250);
         });
 
-        await loadResults(initialKeyword);
+        const initialRequestVersion = ++searchVersion;
+        await loadResults(initialKeyword, initialRequestVersion);
       }
 
-      function renderMenuTable(container, menus, pageToken, currentKeyword) {
+      function renderMenuTable(container, menus, currentPage, keyword) {
         if (!Array.isArray(menus) || menus.length === 0) {
-          showMessage(
-            container,
-            currentKeyword.trim() ? "검색 결과가 없습니다." : "등록된 메뉴가 없습니다.",
-          );
+          showMessage(container, keyword ? "검색 결과가 없습니다." : "등록된 메뉴가 없습니다.");
           return;
         }
 
@@ -425,6 +436,7 @@
 
         menus.forEach((food) => {
           const row = document.createElement("tr");
+
           row.appendChild(makeCell(food.id));
 
           const nameCell = document.createElement("td");
@@ -441,11 +453,17 @@
           actions.className = "action-btns";
 
           actions.append(
-            makeButton("추천", () => recommend(food.id, pageToken, currentKeyword)),
-            makeButton("수정", () => openModal(food.id, pageToken)),
+            makeButton("추천", () => {
+              recommend(food.id, currentPage, keyword);
+            }),
+            makeButton("수정", () => {
+              openModal(food.id, currentPage, keyword);
+            }),
             makeButton(
               "삭제",
-              () => deleteFood(food.id, pageToken, currentKeyword),
+              () => {
+                deleteFood(food.id, currentPage, keyword);
+              },
               "delete-button",
             ),
           );
@@ -459,75 +477,18 @@
         container.replaceChildren(wrapper);
       }
 
-      async function recommend(id, pageToken, keyword) {
+      async function recommend(id, currentPage, keyword) {
         if (!window.confirm(`${id}번 메뉴를 추천할까요?`)) return;
 
         try {
           await recommendMenu(id);
-          if (pageToken === pageVersion) {
+
+          if (currentPage === pageVersion) {
             await renderAllMenu(keyword);
           }
         } catch (error) {
           window.alert(error.message);
         }
-      }
-
-      function renderAddMenu() {
-        ++pageVersion;
-        setActiveNav("nav-add");
-        contentDiv.replaceChildren();
-
-        const heading = document.createElement("h2");
-        heading.textContent = "새 메뉴 등록";
-
-        const form = document.createElement("form");
-        form.id = "add-form";
-
-        const nameInput = createFormField(form, "add-name", "이름", "text", { maxLength: 100 });
-
-        const caloriesInput = createFormField(form, "add-calories", "칼로리 (kcal)", "number", {
-          min: "0",
-          step: "1",
-        });
-
-        const descriptionInput = createFormField(form, "add-description", "설명", "textarea", {
-          rows: "3",
-          maxLength: "1000",
-        });
-
-        const error = document.createElement("p");
-        error.className = "status-message error-message";
-        error.setAttribute("role", "alert");
-
-        const submit = document.createElement("button");
-        submit.type = "submit";
-        submit.textContent = "등록하기";
-
-        form.append(error, submit);
-        contentDiv.append(heading, form);
-
-        form.addEventListener("submit", async (event) => {
-          event.preventDefault();
-          error.textContent = "";
-
-          const menu = readAndValidateMenu(
-            nameInput.value,
-            caloriesInput.value,
-            descriptionInput.value,
-            error,
-          );
-          if (!menu) return;
-
-          submit.disabled = true;
-
-          try {
-            await addMenu({ id: 0, ...menu });
-            await renderAllMenu();
-          } catch (requestError) {
-            error.textContent = requestError.message;
-            submit.disabled = false;
-          }
-        });
       }
 
       function createFormField(form, id, labelText, type, options = {}) {
@@ -546,7 +507,9 @@
         input.id = id;
         input.required = true;
 
-        if (type !== "textarea") input.type = type;
+        if (type !== "textarea") {
+          input.type = type;
+        }
 
         Object.entries(options).forEach(([key, value]) => {
           input[key] = value;
@@ -557,30 +520,95 @@
         return input;
       }
 
+      function renderAddMenu() {
+        const currentPage = beginPage("nav-add");
+
+        const heading = document.createElement("h2");
+        heading.textContent = "새 메뉴 등록";
+
+        const form = document.createElement("form");
+        form.id = "add-form";
+
+        const nameInput = createFormField(form, "add-name", "이름", "text", { maxLength: 100 });
+
+        const caloriesInput = createFormField(form, "add-calories", "칼로리 (kcal)", "number", {
+          min: "0",
+          step: "1",
+        });
+
+        const descriptionInput = createFormField(form, "add-description", "설명", "textarea", {
+          rows: 3,
+          maxLength: 1000,
+        });
+
+        const error = document.createElement("p");
+        error.className = "status-message error-message";
+        error.setAttribute("role", "alert");
+
+        const submit = document.createElement("button");
+        submit.type = "submit";
+        submit.textContent = "등록하기";
+
+        form.append(error, submit);
+        contentDiv.replaceChildren(heading, form);
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          error.textContent = "";
+
+          const menu = readAndValidateMenu(
+            nameInput.value,
+            caloriesInput.value,
+            descriptionInput.value,
+            error,
+          );
+
+          if (!menu) return;
+
+          submit.disabled = true;
+
+          try {
+            await addMenu({ id: 0, ...menu });
+
+            // 등록 요청 중 다른 화면으로 이동했다면 해당 화면을 유지합니다.
+            if (currentPage === pageVersion) {
+              await renderAllMenu();
+            }
+          } catch (requestError) {
+            if (currentPage === pageVersion) {
+              error.textContent = requestError.message;
+              submit.disabled = false;
+            }
+          }
+        });
+      }
+
       function readAndValidateMenu(nameValue, caloriesValue, descriptionValue, error) {
         const name = nameValue.trim();
         const description = descriptionValue.trim();
-        const calories = Number(caloriesValue);
+        const caloriesText = caloriesValue.trim();
+        const calories = Number(caloriesText);
 
-        if (!name || !description || caloriesValue.trim() === "") {
+        if (!name || !description || caloriesText === "") {
           error.textContent = "이름, 칼로리, 설명을 모두 입력해주세요.";
           return null;
         }
 
-        if (!Number.isFinite(calories) || calories < 0) {
-          error.textContent = "칼로리는 0 이상의 올바른 숫자여야 합니다.";
+        if (!Number.isSafeInteger(calories) || calories < 0) {
+          error.textContent = "칼로리는 0 이상의 정수로 입력해주세요.";
           return null;
         }
 
         return { name, calories, description };
       }
 
-      async function deleteFood(id, pageToken, keyword) {
+      async function deleteFood(id, currentPage, keyword) {
         if (!window.confirm("정말 이 메뉴를 삭제하시겠습니까?")) return;
 
         try {
           await deleteMenu(id);
-          if (pageToken === pageVersion) {
+
+          if (currentPage === pageVersion) {
             await renderAllMenu(keyword);
           }
         } catch (error) {
@@ -588,10 +616,15 @@
         }
       }
 
-      async function openModal(id, pageToken) {
+      async function openModal(id, currentPage, keyword) {
+        const requestVersion = ++modalRequestVersion;
+
         try {
           const food = await getMenuOne(id);
-          if (!food || pageToken !== pageVersion) return;
+
+          if (!food || currentPage !== pageVersion || requestVersion !== modalRequestVersion) {
+            return;
+          }
 
           document.getElementById("edit-id").value = food.id ?? "";
           document.getElementById("edit-name").value = food.name ?? "";
@@ -599,23 +632,29 @@
           document.getElementById("edit-description").value = food.description ?? "";
           document.getElementById("edit-error").textContent = "";
 
+          editReturnKeyword = keyword;
           lastFocusedElement = document.activeElement;
           modal.classList.add("active");
           modal.setAttribute("aria-hidden", "false");
           document.getElementById("edit-name").focus();
         } catch (error) {
-          window.alert(error.message);
+          if (currentPage === pageVersion && requestVersion === modalRequestVersion) {
+            window.alert(error.message);
+          }
         }
       }
 
       function closeModal() {
+        modalRequestVersion += 1;
         modal.classList.remove("active");
         modal.setAttribute("aria-hidden", "true");
         editForm.reset();
 
-        if (lastFocusedElement instanceof HTMLElement) {
+        if (lastFocusedElement instanceof HTMLElement && lastFocusedElement.isConnected) {
           lastFocusedElement.focus();
         }
+
+        lastFocusedElement = null;
       }
 
       editForm.addEventListener("submit", async (event) => {
@@ -631,10 +670,13 @@
           document.getElementById("edit-description").value,
           error,
         );
+
         if (!menu) return;
 
-        const id = Number(document.getElementById("edit-id").value);
-        if (!Number.isFinite(id)) {
+        const idValue = document.getElementById("edit-id").value.trim();
+        const id = Number(idValue);
+
+        if (idValue === "" || !Number.isSafeInteger(id) || id <= 0) {
           error.textContent = "메뉴 ID가 올바르지 않습니다.";
           return;
         }
@@ -644,7 +686,7 @@
         try {
           await updateMenu({ id, ...menu });
           closeModal();
-          await renderAllMenu();
+          await renderAllMenu(editReturnKeyword);
         } catch (requestError) {
           error.textContent = requestError.message;
         } finally {
@@ -660,7 +702,9 @@
       document.getElementById("edit-cancel").addEventListener("click", closeModal);
 
       modal.addEventListener("click", (event) => {
-        if (event.target === modal) closeModal();
+        if (event.target === modal) {
+          closeModal();
+        }
       });
 
       document.addEventListener("keydown", (event) => {
